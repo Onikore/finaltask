@@ -1,71 +1,127 @@
 "use client";
 
-import Link from "next/link";
-import type { NextPage } from "next";
-import { useAccount } from "wagmi";
-import { BugAntIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
-import { Address } from "~~/components/scaffold-eth";
+import React, { useEffect, useState } from "react";
+import { abi } from "../../hardhat/artifacts/contracts/YourContract.sol/BillPayment.json";
+import "./App.css";
+import { ethers } from "ethers";
 
-const Home: NextPage = () => {
-  const { address: connectedAddress } = useAccount();
+const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+
+function Home() {
+  const [provider, setProvider] = useState(null);
+  const [signer, setSigner] = useState("");
+  const [contract, setContract] = useState("");
+
+  const [recipient, setRecipient] = useState("");
+  const [amount, setAmount] = useState("");
+  const [billId, setBillId] = useState("");
+  const [payAmount, setPayAmount] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+  const [userBills, setUserBills] = useState([]);
+
+  const connectWallet = async () => {
+    if (!window.ethereum) {
+      alert("Please install MetaMask!");
+      return;
+    }
+
+    try {
+      const _provider = new ethers.providers.Web3Provider(window.ethereum);
+      await _provider.send("eth_requestAccounts", []);
+      const _signer = _provider.getSigner();
+      const _contract = new ethers.Contract(contractAddress, abi, _signer);
+
+      setProvider(_provider);
+      setSigner(_signer);
+      setContract(_contract);
+
+      setStatusMessage("Wallet connected successfully!");
+    } catch (error) {
+      console.error(error);
+      setStatusMessage("Failed to connect wallet.");
+    }
+  };
+
+  const createBill = async () => {
+    if (!contract) return alert("Connect your wallet first!");
+
+    try {
+      const tx = await contract.createBill(recipient, ethers.utils.parseEther(amount));
+      await tx.wait();
+      setStatusMessage(`Bill created successfully. Transaction hash: ${tx.hash}`);
+    } catch (error) {
+      console.error(error);
+      setStatusMessage(`Error creating bill: ${error.message}`);
+    }
+  };
+
+  const payBill = async () => {
+    if (!contract) return alert("Connect your wallet first!");
+
+    try {
+      const tx = await contract.payBill(billId, { value: ethers.utils.parseEther(payAmount) });
+      await tx.wait();
+      setStatusMessage(`Bill paid successfully. Transaction hash: ${tx.hash}`);
+    } catch (error) {
+      console.error(error);
+      setStatusMessage(`Error paying bill: ${error.message}`);
+    }
+  };
+
+  const fetchUserBills = async () => {
+    if (!contract) return alert("Connect your wallet first!");
+
+    try {
+      const address = await signer.getAddress();
+      const bills = await contract.getUserBills(address);
+      setUserBills(bills.map(bill => bill.toString()));
+    } catch (error) {
+      console.error(error);
+      setStatusMessage(`Error fetching user bills: ${error.message}`);
+    }
+  };
+
+  useEffect(() => {
+    if (contract && signer) {
+      fetchUserBills();
+    }
+  }, [contract, signer]);
 
   return (
-    <>
-      <div className="flex items-center flex-col flex-grow pt-10">
-        <div className="px-5">
-          <h1 className="text-center">
-            <span className="block text-2xl mb-2">Welcome to</span>
-            <span className="block text-4xl font-bold">Scaffold-ETH 2</span>
-          </h1>
-          <div className="flex justify-center items-center space-x-2 flex-col sm:flex-row">
-            <p className="my-2 font-medium">Connected Address:</p>
-            <Address address={connectedAddress} />
-          </div>
-          <p className="text-center text-lg">
-            Get started by editing{" "}
-            <code className="italic bg-base-300 text-base font-bold max-w-full break-words break-all inline-block">
-              packages/nextjs/app/page.tsx
-            </code>
-          </p>
-          <p className="text-center text-lg">
-            Edit your smart contract{" "}
-            <code className="italic bg-base-300 text-base font-bold max-w-full break-words break-all inline-block">
-              YourContract.sol
-            </code>{" "}
-            in{" "}
-            <code className="italic bg-base-300 text-base font-bold max-w-full break-words break-all inline-block">
-              packages/hardhat/contracts
-            </code>
-          </p>
-        </div>
+    <div className="App">
+      <h1>Bill Payment Interface</h1>
+      <button onClick={connectWallet}>Connect Wallet</button>
+      <p>{statusMessage}</p>
 
-        <div className="flex-grow bg-base-300 w-full mt-16 px-8 py-12">
-          <div className="flex justify-center items-center gap-12 flex-col sm:flex-row">
-            <div className="flex flex-col bg-base-100 px-10 py-10 text-center items-center max-w-xs rounded-3xl">
-              <BugAntIcon className="h-8 w-8 fill-secondary" />
-              <p>
-                Tinker with your smart contract using the{" "}
-                <Link href="/debug" passHref className="link">
-                  Debug Contracts
-                </Link>{" "}
-                tab.
-              </p>
-            </div>
-            <div className="flex flex-col bg-base-100 px-10 py-10 text-center items-center max-w-xs rounded-3xl">
-              <MagnifyingGlassIcon className="h-8 w-8 fill-secondary" />
-              <p>
-                Explore your local transactions with the{" "}
-                <Link href="/blockexplorer" passHref className="link">
-                  Block Explorer
-                </Link>{" "}
-                tab.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
+      <h2>Create Bill</h2>
+      <input
+        type="text"
+        placeholder="Recipient Address"
+        value={recipient}
+        onChange={e => setRecipient(e.target.value)}
+      />
+      <input type="number" placeholder="Amount (in ETH)" value={amount} onChange={e => setAmount(e.target.value)} />
+      <button onClick={createBill}>Create Bill</button>
+
+      <h2>Pay Bill</h2>
+      <input type="number" placeholder="Bill ID" value={billId} onChange={e => setBillId(e.target.value)} />
+      <input
+        type="number"
+        placeholder="Amount (in ETH)"
+        value={payAmount}
+        onChange={e => setPayAmount(e.target.value)}
+      />
+      <button onClick={payBill}>Pay Bill</button>
+
+      <h2>Your Bills</h2>
+      <button onClick={fetchUserBills}>Fetch My Bills</button>
+      <ul>
+        {userBills.map((id, index) => (
+          <li key={index}>Bill ID: {id}</li>
+        ))}
+      </ul>
+    </div>
   );
-};
+}
 
 export default Home;

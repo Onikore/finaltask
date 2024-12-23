@@ -1,78 +1,87 @@
-//SPDX-License-Identifier: MIT
-pragma solidity >=0.8.0 <0.9.0;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
 
-// Useful for debugging. Remove when deploying to a live network.
-import "hardhat/console.sol";
+contract BillPayment {
+    address public owner;
 
-// Use openzeppelin to inherit battle-tested implementations (ERC20, ERC721, etc)
-// import "@openzeppelin/contracts/access/Ownable.sol";
-
-/**
- * A smart contract that allows changing a state variable of the contract and tracking the changes
- * It also allows the owner to withdraw the Ether in the contract
- * @author BuidlGuidl
- */
-contract YourContract {
-    // State Variables
-    address public immutable owner;
-    string public greeting = "Building Unstoppable Apps!!!";
-    bool public premium = false;
-    uint256 public totalCounter = 0;
-    mapping(address => uint) public userGreetingCounter;
-
-    // Events: a way to emit log statements from smart contract that can be listened to by external parties
-    event GreetingChange(address indexed greetingSetter, string newGreeting, bool premium, uint256 value);
-
-    // Constructor: Called once on contract deployment
-    // Check packages/hardhat/deploy/00_deploy_your_contract.ts
-    constructor(address _owner) {
-        owner = _owner;
+    // Структура счета
+    struct Bill {
+        int256 id;
+        address payable recipient; // Получатель оплаты
+        uint256 amount;           // Сумма счета
+        bool paid;                // Статус оплаты
     }
 
-    // Modifier: used to define a set of rules that must be met before or after a function is executed
-    // Check the withdraw() function
-    modifier isOwner() {
-        // msg.sender: predefined variable that represents address of the account that called the current function
-        require(msg.sender == owner, "Not the Owner");
+    // Маппинг для хранения счетов
+    mapping(int256 => Bill) public bills;
+    mapping(address => int256[]) public userBillIds; // Маппинг для хранения ID счетов по адресам пользователей
+    int256 public nextBillId;
+
+    // События
+    event BillCreated(int256 billId, address recipient, uint256 amount);
+    event BillPaid(int256 billId, address payer, uint256 amount);
+    
+    // Конструктор контракта
+    constructor() {
+        owner = msg.sender;
+    }
+
+    // Модификатор для проверки владельца
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can perform this action");
         _;
     }
 
-    /**
-     * Function that allows anyone to change the state variable "greeting" of the contract and increase the counters
-     *
-     * @param _newGreeting (string memory) - new greeting to save on the contract
-     */
-    function setGreeting(string memory _newGreeting) public payable {
-        // Print data to the hardhat chain console. Remove when deploying to a live network.
-        console.log("Setting new greeting '%s' from %s", _newGreeting, msg.sender);
+    // Функция создания счета
+    function createBill(address payable _recipient, uint256 _amount) external onlyOwner {
+        require(_amount > 0, "Amount must be greater than 0");
+        require(_recipient != address(0), "Recipient address cannot be zero address");
 
-        // Change state variables
-        greeting = _newGreeting;
-        totalCounter += 1;
-        userGreetingCounter[msg.sender] += 1;
+        bills[nextBillId] = Bill({
+            id: nextBillId,
+            recipient: _recipient,
+            amount: _amount,
+            paid: false
+        });
 
-        // msg.value: built-in global variable that represents the amount of ether sent with the transaction
-        if (msg.value > 0) {
-            premium = true;
-        } else {
-            premium = false;
-        }
+        // Добавляем ID счета для пользователя
+        userBillIds[_recipient].push(nextBillId);
 
-        // emit: keyword used to trigger an event
-        emit GreetingChange(msg.sender, _newGreeting, msg.value > 0, msg.value);
+        emit BillCreated(nextBillId, _recipient, _amount);
+        nextBillId++;
     }
 
-    /**
-     * Function that allows the owner to withdraw all the Ether in the contract
-     * The function can only be called by the owner of the contract as defined by the isOwner modifier
-     */
-    function withdraw() public isOwner {
-        (bool success, ) = owner.call{ value: address(this).balance }("");
-        require(success, "Failed to send Ether");
+    // Функция оплаты счета
+    function payBill(int256 _billId) external payable {
+        Bill storage bill = bills[_billId];
+
+        require(!bill.paid, "Bill already paid");
+        require(msg.value == bill.amount, "Incorrect payment amount");
+
+        bill.paid = true;
+        bill.recipient.transfer(msg.value);
+
+        emit BillPaid(_billId, msg.sender, msg.value);
     }
 
-    /**
-     * Function that allows the contract to receive ETH
-     */
-    receive() external payable {}
+    // Функция проверки статуса счета
+    function isPaid(int256 _billId) external view returns (bool) {
+        return bills[_billId].paid;
+    }
+
+    // Функция получения списка ID счетов пользователя
+    function getUserBills(address _user) external view returns (int256[] memory) {
+        return userBillIds[_user];
+    }
+
+    // Функция вывода средств владельцем (для возврата или дополнительных нужд)
+    function withdrawFunds(uint256 _amount) external onlyOwner {
+        require(_amount <= address(this).balance, "Insufficient contract balance");
+        payable(owner).transfer(_amount);
+    }
+
+    // Функция для получения баланса контракта
+    function getContractBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
 }
